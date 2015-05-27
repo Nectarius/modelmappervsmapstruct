@@ -246,6 +246,15 @@
             <version>2.14</version>
         </dependency>
 
+        <!-- Orika -->
+
+        <dependency>
+            <groupId>ma.glasnost.orika</groupId>
+            <artifactId>orika-core</artifactId>
+            <version>${org.orika.version}</version>
+        </dependency>
+
+
         <!-- -->
 
         <dependency>
@@ -424,5 +433,6 @@
         <spring-security.version>3.1.4.RELEASE</spring-security.version>
         <org.mapstruct.version>1.0.0.Beta4</org.mapstruct.version>
         <org.modelmapper.version>0.7.4</org.modelmapper.version>
+        <org.orika.version>1.4.5</org.orika.version>
     </properties>
 </project>
