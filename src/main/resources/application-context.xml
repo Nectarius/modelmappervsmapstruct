@@ -18,5 +18,9 @@
           class="modelmapper.ControlModelMapperFactory">
     </bean>
 
+    <bean id="mapperFacade"
+          class="orika.OrikaMapperFactory">
+    </bean>
+
 
 </beans>
