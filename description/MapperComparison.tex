@@ -1,0 +1,278 @@
+\documentclass{article}
+% XeLaTeX
+\usepackage{xltxtra}
+\usepackage{xunicode}
+
+% Fonts
+\setmainfont{Liberation Mono}
+\newfontfamily\cyrillicfont{Liberation Mono}
+\setmonofont{Liberation Mono}
+
+\setcounter{page}{1}
+
+\setlength{\textheight}{21.6cm}
+
+\setlength{\textwidth}{14cm}
+
+\setlength{\oddsidemargin}{1cm}
+
+\setlength{\evensidemargin}{1cm}
+
+\usepackage{listings}
+\usepackage{color}
+
+\definecolor{dkgreen}{rgb}{0,0.6,0}
+\definecolor{gray}{rgb}{0.5,0.5,0.5}
+\definecolor{mauve}{rgb}{0.58,0,0.82}
+
+\lstset{
+  language=Java,
+  aboveskip=3mm,
+  belowskip=3mm,
+  showstringspaces=false,
+  columns=flexible,
+  basicstyle={\small\ttfamily},
+  numbers=none,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\color{blue},
+  commentstyle=\color{dkgreen},
+  stringstyle=\color{mauve},
+  breaklines=false,
+  breakatwhitespace=false,
+  tabsize=3
+}
+
+% Lang
+\usepackage{polyglossia}
+\setmainlanguage{russian}
+\setotherlanguage{english}
+
+\date{}
+
+\begin{document}
+
+\centerline{\Large{\bf Сравнение ModelMapper и MapStruct и Orika на примерах }}
+
+\section{Мэппинг нескольких полей на единственное}
+
+
+ \begin{itemize}
+ \item Domain :
+ \begin{lstlisting} 
+  class  Note {
+     private String title;
+     private String brief;
+     private String text;
+     private String type;
+  }
+  \end{lstlisting}
+ \item ViewObject
+ \begin{lstlisting} 
+ class SimpleNoteView {
+      private String description;
+     private String type;
+  }
+  \end{lstlisting}
+ \end{itemize}
+  \textbf{@Test} twoInOne()
+ 
+ \paragraph{Задача:}
+ Мы хотим маппить из Note поля title и brief на description
+ 
+  \paragraph{MapStruct:}
+  Мэппинг удалось решить с помощью expression а.  
+  
+\begin{lstlisting} 
+ @Mapper(componentModel = "spring")
+ public interface NoteMapper { 
+     @Mapping(target = "description",
+             expression = "java(  String.valueOf(note.getTitle() + ' ' + note.getBrief()) )")
+     NoteView noteToNoteView(Note note);
+    \end{lstlisting}
+    //Фрагмент сгенерированного кода:
+  \begin{lstlisting}   
+     NoteView noteView = new NoteView(); 
+     noteView.setType( note.getType() );
+     noteView.setDescription( String.valueOf(note.getTitle() + ' ' + note.getBrief()) );
+ 
+  \end{lstlisting}
+  \paragraph{Замечание: }
+    В перспективе возможно для этого можно попробовать использовать decorator. 
+    К сожалению в данный момент он не поддерживается для Spring конфигурации
+    
+    
+     \paragraph{ModelMapper:}
+     В Model Mapper есть возможность делать мэппинг для полей с помощью  PropertyMap.
+     Но возникла проблема из за proxies types
+     \begin{lstlisting} 
+     public class NoteMap extends PropertyMap<Note, NoteView> {
+             protected void configure() {
+                 String description = source.getTitle() + ' ' + source.getBrief();
+                 map().setDescription(description);
+             }
+     }
+     \end{lstlisting}
+     //Будет брошено исключение 
+     "Cannot map final type java.lang.StringBuilder."
+      Удалось решить только конвертером.
+      \begin{lstlisting} 
+          private Converter<Note, NoteView> noteConverter = new AbstractConverter<Note, NoteView>() {
+                  protected NoteView convert(Note note) {
+                      NoteView noteView = new NoteView();
+                      noteView.setDescription(note.getTitle() + ' ' + note.getBrief());
+                      return noteView;
+                  }
+              };
+         modelMapper.addConverter(noteConverter);
+     \end{lstlisting}
+\section{Мэппинг с условием} 
+    
+    \paragraph{Задача:}
+Допустим необходимо смаппить на commentary title если type == common 
+Добавим в NoteView поле commentary
+
+\paragraph{ModelMapper:}
+В ModelMapper есть Condition.
+Таким образом будет выглядеть условие
+\begin{lstlisting} 
+      Condition<Note, NoteView> typeIsCommon = new Condition<Note, NoteView>() {
+             @Override
+             public boolean applies(MappingContext<Note, NoteView> context) {
+                 System.out.println("test");
+                 Note note = (Note)context.getParent().getSource();
+                 boolean flag = note.getType().equals("common");
+                 return flag;
+             }
+         };
+\end{lstlisting}
+Добавим в PropertyMap     
+     \begin{lstlisting} 
+           public class NoteMap extends PropertyMap<Note, NoteView> {
+                   protected void configure() {
+                       when(typeIsCommon).map().setCommentary(source.getTitle());
+                   }
+               }
+     \end{lstlisting}
+и в ModelMapper 
+\begin{lstlisting} 
+           modelMapper.addMappings(new NoteMap());
+     \end{lstlisting}
+     
+  \paragraph{MapStruct:}
+  
+     Здесь приведу как вариант Статический метод + expression.  Дальше будет другой пример по аналогии с которым можно вместо статического метода
+     использовать custom mapper.
+     
+     статический метод:
+   \begin{lstlisting} 
+             public static String getCommentaryByType(Note note){
+                       if(note.getType().equals("common")){
+                           return note.getTitle();
+                       }
+                       return "";
+                 };
+        \end{lstlisting}  
+     И Expression :   
+   \begin{lstlisting} 
+                     @Mapping(target = "commentary",
+                                 expression = "java(  NoteConditions.getCommentaryByType(note) )")
+                         NoteView noteToNoteVieww(Note note);
+   \end{lstlisting}  
+   
+\section{Дженерики} 
+ \paragraph{Задача:}
+  Допустим есть AbstractNote с методом возвращающим абстрактный объект AbstractComment
+  А нам нужно сделать маппинг его наследника с переопределённым методом.
+  
+  \paragraph{MapStruct:}
+   \begin{lstlisting} 
+  @Mappings({
+              @Mapping(target = "commentary",
+                      expression = "java( ((VelvetNote)note).getCommentary().toString()  )"),
+              @Mapping(target = "advanceTitle",
+                      expression = "java( ((VelvetNote)note).getAdvanceTitle()  )")
+      })
+      \end{lstlisting} 
+  \paragraph{ModelMapper:}
+  
+  Подхватил свойства наследника без дополнительных настроек
+  
+  \section{Мэппинг сущностей тип полей которых может меняться от внешнего условия}
+  \begin{itemize}
+   \item Domain :
+   \begin{lstlisting} 
+   public class Control {  
+       private Long id;   
+       private String name;  
+       private Details details;   
+   
+   public class Details {
+       private String name;
+       private String description;
+   
+    \end{lstlisting}
+   \item ViewObject
+   \begin{lstlisting} 
+  public class ControlView {
+      private String name;
+      private String status;
+      private DetailsView detailsView;
+  \end{lstlisting}
+  А DetailsView типом в зависимости от внешнего условия
+  \begin{lstlisting} 
+  public class AdminDetailsView extends DetailsView {
+      private String description;
+  или
+  
+  public class DetailsView {
+      private String name;
+    \end{lstlisting}
+   \end{itemize}
+   
+   Удалось сделать решение без использования дополнительного конвертера только на Map Struct.
+   
+   \textbf{Основной Mapper с методом:} 
+    \begin{lstlisting} 
+    @Mapping(target = "detailsView", expression = "java(abstractDetailsMapper.fromDetailsView(control.getDetails(), isEmployee))")
+        ControlView controlToControlView(Control control, Boolean isEmployee);
+     \end{lstlisting}
+    \textbf{Дополнительный :} 
+     \begin{lstlisting} 
+        @Mapper(componentModel = "spring")
+        public interface DetailsMapper {
+            DetailsView detailsToDetailsView(Details details);
+            AdminDetailsView adminDetailsToDetailsView(Details details, Boolean isEmployee);
+        }
+         \end{lstlisting}
+         isEmployee и есть параметр внешнее условие
+         и custom mapper который делает выбор по условию
+         \begin{lstlisting} 
+        @Component
+        public class AbstractDetailsMapper {
+        @Autowired
+        private DetailsMapper detailsMapper;
+        public DetailsView fromDetailsView(Details details) {
+            return detailsMapper.detailsToDetailsView(details);
+        }
+        public DetailsView fromDetailsView(Details details, Boolean isEmployee) {
+            if (isEmployee) {
+                return detailsMapper.adminDetailsToDetailsView(details, isEmployee);
+            } else {
+                 return detailsMapper.detailsToDetailsView(details);
+            }               
+         }
+         \end{lstlisting}
+  \section{О проверка маппинга} 
+  
+   \paragraph{ModelMapper:}      
+         В ModelMapper можно проверить что все поля были смапплены с помощью вызова метода validate у mapper а.       
+         Если мы в PropertyMap  закомментарим
+         \begin{lstlisting}     
+           map().setDescription(source.getText()); 
+          \end{lstlisting}        
+         То на проверки будет брошено исключение    
+          \begin{lstlisting}      
+         1) Unmapped destination properties found in TypeMap[Note -> NoteView]:
+          \end{lstlisting}
+    \paragraph{MapStruct:}   я не нашёл способов чтобы он бросал исключение при возникновении ошибок тем не менее, но он может выводить информацию в лог о полях который не были замапплены. 
+\end{document}
